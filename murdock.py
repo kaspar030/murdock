@@ -145,6 +145,14 @@ class PullRequest(object):
         s.labels = set()
         s.old_head = None
 
+        status = {
+                "state": "pending",
+                "description": "Waiting for review",
+                "context": config.context
+                }
+        s.set_status(s.head, "pending", status)
+
+
     def get(data, create=True):
         if "pull_request" in data:
             data = data["pull_request"]
