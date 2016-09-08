@@ -145,14 +145,6 @@ class PullRequest(object):
         s.labels = set()
         s.old_head = None
 
-        status = {
-                "state": "pending",
-                "description": "Waiting for review",
-                "context": config.context
-                }
-        s.set_status(s.head, "pending", status)
-
-
     def get(data, create=True):
         if "pull_request" in data:
             data = data["pull_request"]
@@ -409,12 +401,13 @@ def handle_pull_request(request):
             pr.add_label(data["label"]["name"])
         elif action == "created":
             status = {
+                    "state": "pending",
                     "description": "\"Ready for CI build\" label not set",
                     "context": config.context,
                     "target_url" : config.http_root,
                     }
 
-            pr.set_status(pr_data["head"]["sha"], "failure", status)
+            pr.set_status(pr_data["head"]["sha"], "pending", status)
 
 def handle_push(request):
     data = json.loads(request.body.decode("utf-8"))
