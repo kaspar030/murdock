@@ -401,12 +401,13 @@ def handle_pull_request(request):
             pr.add_label(data["label"]["name"])
         elif action == "created":
             status = {
+                    "state": "pending",
                     "description": "\"Ready for CI build\" label not set",
                     "context": config.context,
                     "target_url" : config.http_root,
                     }
 
-            pr.set_status(pr_data["head"]["sha"], "failure", status)
+            pr.set_status(pr_data["head"]["sha"], "pending", status)
 
 def handle_push(request):
     data = json.loads(request.body.decode("utf-8"))
