@@ -4,6 +4,7 @@ import tornado.web
 import tornado.websocket
 import json
 import os
+import urllib.parse
 
 from log import log
 
@@ -11,6 +12,56 @@ from util import config
 from threading import Lock
 
 config.set_default("url_prefix", r"")
+
+
+class Pagination(object):
+    DEFAULT_PER_PAGE = 100
+    DEFAULT_PAGE = 1
+
+    def __init__(self, request):
+        self.page = request.get_argument("page", Pagination.DEFAULT_PAGE)
+        self.per_page = request.get_argument("per_page",
+                                             Pagination.DEFAULT_PER_PAGE)
+        self.rels_template = "<%s://%s%s?{qs}>; rel=\"{rel}\"" % \
+            (request.protocol, request.host, request.path)
+        self.request = request
+
+    def _get_rel(self, rel_name, rel_page):
+        return {
+                "rel": rel_name,
+                "qs": urllib.parse.urlencode({
+                        "page": rel_page,
+                        "per_page": self.per_page
+                    })
+            }
+
+    def set_header(self, objects_num=0):
+        if objects_num <= self.per_page:
+            pages = 1
+        else:
+            pages = (objects_num // self.per_page)
+            if (objects_num % self.per_page):
+                pages += 1
+        if self.page > pages:
+            self.page = pages
+        rels = []
+        if self.page > 1:
+            rels.extend([
+                    self.rels_template.format(**self._get_rel("first", 1)),
+                    self.rels_template.format(**self._get_rel("prev",
+                                                              self.page - 1))
+                ])
+        if (self.page < pages):
+            rels.append(
+                    self.rels_template.format(**self._get_rel("next",
+                                                              self.page + 1))
+                )
+        rels.append(
+                self.rels_template.format(**self._get_rel("last",
+                                                          pages))
+            )
+        self.request.set_header("Link", ", ".join(rels))
+
 
 class GithubWebhook(object):
     def __init__(s, port, prs, github_handlers):
@@ -53,6 +104,7 @@ class GithubWebhook(object):
                         })
                 return res
 
+            pagination = Pagination(self)
             self.set_header("Content-Type", 'application/json; charset="utf-8"')
             self.set_header("Access-Control-Allow-Credentials", "false")
             self.set_header("Access-Control-Allow-Origin", "*")
@@ -60,14 +112,26 @@ class GithubWebhook(object):
             building, queued, finished = self.prs.list()
             response = {}
 
-            if building:
+            building_num = len(building)
+            queued_num = len(building)
+            pending_num = building_num + queued_num
+            finished_num = len(finished)
+            page_1_finished = 0         # number of finished jobs on page 1
+            if (pending_num < pagination.per_page):
+                page_1_finished = pagination.per_page - pending_num
+            pagination.set_header((finished_num - page_1_finished) +
+                                  # put pending always on first page regardless
+                                  # of actual number
+                                  (self.per_page if pending_num else 0))
+
+            if (pagination.page == 1) and (building_num > 0):
                 _building = []
                 for pr, job in building:
                     _building.append(
                             gen_pull_entry(pr, job, job.time_started))
                 response['building'] = _building
 
-            if queued:
+            if (pagination.page == 1) and (queued_num > 0):
                 _queued = []
                 for pr, job in queued:
                     _queued.append(
@@ -75,9 +139,18 @@ class GithubWebhook(object):
 
                 response['queued'] = _queued
 
-            if finished:
+            if (finished_num > 0):
                 _finished = []
-                for pr, job in finished:
+                if (pagination.page > 1):
+                    first = ((pagination.page - 1) * pagination.per_page) + \
+                            page_1_finished
+                elif (page_1_finished > 0):
+                    first = 0
+                else:
+                    # we are on first page and finished jobs don't fit
+                    # => skip loop
+                    finished = []
+                for pr, job in finished[first:(first + pagination.per_page)]:
                     job_path_rel = os.path.join(pr.base_full_name, str(pr.nr), job.arg)
                     job_path_local = os.path.join(config.data_dir, job_path_rel)
                     job_path_url = os.path.join(config.http_root, job_path_rel)
