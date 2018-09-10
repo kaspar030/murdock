@@ -12,162 +12,169 @@ from threading import Lock
 
 config.set_default("url_prefix", r"")
 
-class GithubWebhook(object):
-    def __init__(s, port, prs, github_handlers):
 
-        s.secret = "__secret"
-        s.port = port
-        s.application = tornado.web.Application([
-#            (r"/", GithubWebhook.MainHandler),
-            (config.url_prefix + r"/api/pull_requests", GithubWebhook.PullRequestHandler, dict(prs=prs)),
-            (config.url_prefix + r"/github", GithubWebhook.GithubWebhookHandler, dict(handler=github_handlers)),
-            (config.url_prefix + r"/status", GithubWebhook.StatusWebSocket),
-            (config.url_prefix + r"/control", GithubWebhook.ControlHandler),
-                ])
-        s.server = tornado.httpserver.HTTPServer(s.application)
-        s.server.listen(s.port)
-        s.websocket_lock = Lock()
-        s.status_websockets = set()
+class MainHandler(tornado.web.RequestHandler):
 
-    def run(s):
-        log.info("tornado IOLoop started.")
-        tornado.ioloop.IOLoop.instance().start()
+    def get(self):
+        self.write("...")
 
-    class MainHandler(tornado.web.RequestHandler):
-        def get(self):
-            self.write("...")
 
-    class PullRequestHandler(tornado.web.RequestHandler):
-        def initialize(s, prs):
-            s.prs = prs
+class PullRequestHandler(tornado.web.RequestHandler):
 
-        def get(self):
-            def gen_pull_entry(pr, job, time, extra = None):
-                res = extra or {}
-                res.update({
-                        "title" : pr.title,
-                        "user" : pr.user,
-                        "url" : pr.url,
-                        "commit" : job.arg,
-                        "since" : time,
-                        })
-                return res
+    def initialize(self, prs):
+        self.prs = prs
 
-            self.set_header("Content-Type", 'application/json; charset="utf-8"')
-            self.set_header("Access-Control-Allow-Credentials", "false")
-            self.set_header("Access-Control-Allow-Origin", "*")
+    def get(self):
 
-            building, queued, finished = self.prs.list()
-            response = {}
+        def gen_pull_entry(pr, job, time, extra = None):
+            res = extra or {}
+            res.update({
+                    "title" : pr.title,
+                    "user" : pr.user,
+                    "url" : pr.url,
+                    "commit" : job.arg,
+                    "since" : time,
+                    })
+            return res
 
-            if building:
-                _building = []
-                for pr, job in building:
-                    _building.append(
-                            gen_pull_entry(pr, job, job.time_started))
-                response['building'] = _building
+        self.set_header("Content-Type", 'application/json; charset="utf-8"')
+        self.set_header("Access-Control-Allow-Credentials", "false")
+        self.set_header("Access-Control-Allow-Origin", "*")
 
-            if queued:
-                _queued = []
-                for pr, job in queued:
-                    _queued.append(
-                            gen_pull_entry(pr, job, job.time_queued))
+        building, queued, finished = self.prs.list()
+        response = {}
+
+        if building:
+            _building = []
+            for pr, job in building:
+                _building.append(gen_pull_entry(pr, job, job.time_started))
+            response['building'] = _building
+
+        if queued:
+            _queued = []
+            for pr, job in queued:
+                _queued.append(gen_pull_entry(pr, job, job.time_queued))
 
                 response['queued'] = _queued
 
-            if finished:
-                _finished = []
-                for pr, job in finished:
-                    job_path_rel = os.path.join(pr.base_full_name, str(pr.nr), job.arg)
-                    job_path_local = os.path.join(config.data_dir, job_path_rel)
-                    job_path_url = os.path.join(config.http_root, job_path_rel)
+        if finished:
+            _finished = []
+            for pr, job in finished:
+                job_path_rel = os.path.join(pr.base_full_name, str(pr.nr), job.arg)
+                job_path_local = os.path.join(config.data_dir, job_path_rel)
+                job_path_url = os.path.join(config.http_root, job_path_rel)
 
-                    extras = {
-                        "output_url": os.path.join(job_path_url, "output.html"),
-                        "result": job.result.name,
-                        "runtime": (job.time_finished - job.time_started),
-                      }
-                    status_jsonfile = os.path.join(job_path_local,
-                                                   "prstatus.json")
-                    if os.path.isfile(status_jsonfile):
-                        with open(status_jsonfile) as f:
-                            # Content is up for interpretation between backend
-                            # and frontend scripting
-                            extras["status"] = json.load(f)
-                    if "status" not in extras:
-                        status_html_snipfile = os.path.join(
-                                job_path_local, "prstatus.html.snip"
-                            )
-
-                        status_html = ""
-                        if os.path.isfile(status_html_snipfile):
-                            with open(status_html_snipfile, "r") as f:
-                                status_html = f.read()
-                        extras["status_html"] = status_html
-
-                    _finished.append(
-                            gen_pull_entry(pr, job, job.time_finished, extras)
+                extras = {
+                    "output_url": os.path.join(job_path_url, "output.html"),
+                    "result": job.result.name,
+                    "runtime": (job.time_finished - job.time_started),
+                  }
+                status_jsonfile = os.path.join(job_path_local,
+                                               "prstatus.json")
+                if os.path.isfile(status_jsonfile):
+                    with open(status_jsonfile) as f:
+                        # Content is up for interpretation between backend
+                        # and frontend scripting
+                        extras["status"] = json.load(f)
+                if "status" not in extras:
+                    status_html_snipfile = os.path.join(
+                            job_path_local, "prstatus.html.snip"
                         )
 
-                response['finished'] = _finished
+                    status_html = ""
+                    if os.path.isfile(status_html_snipfile):
+                        with open(status_html_snipfile, "r") as f:
+                            status_html = f.read()
+                    extras["status_html"] = status_html
 
-            self.write(json.dumps(response, sort_keys=False, indent=4))
+                _finished.append(
+                        gen_pull_entry(pr, job, job.time_finished, extras)
+                    )
 
-    class GithubWebhookHandler(tornado.web.RequestHandler):
-        def initialize(s, handler):
-            s.handler = handler
+            response['finished'] = _finished
 
-        def post(s):
-            s.write("ok")
-            hook_type = s.request.headers.get('X-Github-Event')
+        self.write(json.dumps(response, sort_keys=False, indent=4))
 
-            handler = s.handler.get(hook_type)
-            if handler:
-                handler(s.request)
-            else:
-                log.warning("unhandled github event: %s", hook_type)
 
-    class StatusWebSocket(tornado.websocket.WebSocketHandler):
-        lock = Lock()
-        websockets = set()
-        keeper = None
+class GithubWebhookHandler(tornado.web.RequestHandler):
 
-        # passive read only websocket, so anyone can read
-        def check_origin(self, origin):
-            return True
+    def initialize(self, handler):
+        self.handler = handler
 
-        def write_message_all(message, binary=False):
-            s = GithubWebhook.StatusWebSocket
-            with s.lock:
-                for websocket in s.websockets:
-                    websocket.write_message(message, binary)
+    def post(self):
+        self.write("ok")
+        hook_type = self.request.headers.get('X-Github-Event')
 
-        def keep_alive():
-            s = GithubWebhook.StatusWebSocket
-            with s.lock:
-                for websocket in s.websockets:
-                    websocket.ping("ping".encode("ascii"))
+        handler = self.handler.get(hook_type)
+        if handler:
+            handler(self.request)
+        else:
+            log.warning("unhandled github event: %s", hook_type)
 
-        def open(self):
-            print("websocket opened")
-            with self.lock:
-                if not self.websockets:
-                    s = GithubWebhook.StatusWebSocket
-                    s.keeper = tornado.ioloop.PeriodicCallback(s.keep_alive, 30*1000)
-                    s.keeper.start()
-                self.websockets.add(self)
 
-        def on_message(self, message):
-            pass
+class StatusWebSocketHandler(tornado.websocket.WebSocketHandler):
 
-        def on_close(self):
-            with self.lock:
-                self.websockets.discard(self)
-                if not self.websockets:
-                    self.keeper.stop()
+    # passive read only websocket, so anyone can read
+    def check_origin(self, origin):
+        return True
 
-    class ControlHandler(tornado.web.RequestHandler):
-        def post(self):
-#            data = json.loads(self.request.body)
-            s = GithubWebhook.StatusWebSocket
-            s.write_message_all(self.request.body)
+    def open(self):
+        print("websocket opened")
+        if not self.application.websockets:
+            self.application.start_keep_alive()
+        self.application.websockets.add(self)
+
+    def on_message(self, message):
+        pass
+
+    def on_close(self):
+        self.application.websockets.discard(self)
+        if not self.application.websockets:
+            self.application.stop_keep_alive()
+
+
+class ControlHandler(tornado.web.RequestHandler):
+
+    def post(self):
+        # data = json.loads(self.request.body)
+        self.application.write_message_all(self.request.body)
+
+
+class GithubWebhook(tornado.web.Application):
+
+    def __init__(self, prs, github_handlers):
+        settings = {'debug': True}
+        handlers = [
+            # (r"/", GithubWebhook.MainHandler),
+            (config.url_prefix + r"/api/pull_requests", PullRequestHandler,
+             dict(prs=prs)),
+            (config.url_prefix + r"/github", GithubWebhookHandler,
+             dict(handler=github_handlers)),
+            (config.url_prefix + r"/status", StatusWebSocketHandler),
+            (config.url_prefix + r"/control", ControlHandler),
+            ]
+        self.websocket_lock = Lock()
+        self.status_websockets = set()
+        self.keeper = None
+        self.lock = Lock()
+        self.websockets = set()
+
+        super(GithubWebhook, self).__init__(handlers, **settings)
+
+    def write_message_all(self, message, binary=False):
+        with self.lock:
+            for websocket in self.websockets:
+                websocket.write_message(message, binary)
+
+    def keep_alive(self):
+        with self.lock:
+            for websocket in self.websockets:
+                websocket.ping("ping".encode("ascii"))
+
+    def start_keep_alive(self):
+        self.keeper = tornado.ioloop.PeriodicCallback(self.keep_alive,
+                                                      30 * 1000)
+        self.keeper.start()
+
+    def stop_keep_alive(self):
+        self.keeper.stop()

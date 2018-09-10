@@ -352,7 +352,7 @@ class PullRequest(object):
             log.info("PR %s runtime: %s", s.url, nicetime(runtime))
 
         log.info("PR %s notifying webhooks", s.url)
-        GithubWebhook.StatusWebSocket.write_message_all('{ "cmd" :"reload_prs" }')
+        webhook.write_message_all('{ "cmd" :"reload_prs" }')
 
     def set_status(s, commit, **kwargs):
         status = {
@@ -475,20 +475,24 @@ github_handlers = {
 github = GitHub(config.github_username, config.github_password)
 queue = Queue()
 ShellWorker(queue)
+webhook = GithubWebhook(PullRequest, github_handlers)
 
 def shutdown():
     log.info("murdock: shutting down.")
     tornado.ioloop.IOLoop.instance().stop()
 
+
 def sig_handler(sig, frame):
     log.warning('Caught signal: %s', sig)
     shutdown()
+
 
 def startup_load_pull_requests():
     log.info("Loading pull requests...")
     for repo in config.repos:
         PullRequest.load(repo)
     log.info("All pull request loaded.")
+
 
 def main():
     signal.signal(signal.SIGTERM, sig_handler)
@@ -497,13 +501,15 @@ def main():
 
 #    threading.Thread(target=startup_load_pull_requests, daemon=True).start()
 
-    g = GithubWebhook(config.port, PullRequest, github_handlers)
-    g.run()
+    webhook.listen(config.port)
+    log.info("Start tornado IOLoop")
+    tornado.ioloop.IOLoop.instance().start()
 
     # tornado loop ended
 
     PullRequest.cancel_all()
     log.info("murdock shut down.")
+
 
 if __name__ == "__main__":
     main()
