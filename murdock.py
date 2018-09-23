@@ -16,7 +16,7 @@ import threading
 from queue import Queue, Empty
 
 from jobs import Job, JobResult, JobState
-from github_webhook import GithubWebhook
+from github_webhook import GithubWebhook, StatusWebSocket
 
 from util import config
 from threading import Lock
@@ -352,7 +352,7 @@ class PullRequest(object):
             log.info("PR %s runtime: %s", s.url, nicetime(runtime))
 
         log.info("PR %s notifying webhooks", s.url)
-        GithubWebhook.StatusWebSocket.write_message_all('{ "cmd" :"reload_prs" }')
+        StatusWebSocket.write_message_all('{ "cmd" :"reload_prs" }')
 
     def set_status(s, commit, **kwargs):
         status = {
