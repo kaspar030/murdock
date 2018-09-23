@@ -10,7 +10,7 @@ from threading import Lock
 config.set_default("url_prefix", r"")
 
 class GithubWebhook(tornado.web.Application):
-
+    
     def __init__(self, prs, github_handlers):
         self.secret = "__secret"
         handlers = [
@@ -26,9 +26,6 @@ class GithubWebhook(tornado.web.Application):
         settings = {'debug': True}
         super(GithubWebhook, self).__init__(handlers, **settings)
 
-    def run(self):
-        log.info("tornado IOLoop started.")
-        tornado.ioloop.IOLoop.instance().start()
 
     class MainHandler(tornado.web.RequestHandler):
         def get(self):
