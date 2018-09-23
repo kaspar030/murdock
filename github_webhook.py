@@ -9,22 +9,22 @@ from threading import Lock
 
 config.set_default("url_prefix", r"")
 
-class GithubWebhook(object):
-    def __init__(self, port, prs, github_handlers):
+class GithubWebhook(tornado.web.Application):
 
+    def __init__(self, prs, github_handlers):
         self.secret = "__secret"
-        self.port = port
-        self.application = tornado.web.Application([
+        handlers = [
 #            (r"/", GithubWebhook.MainHandler),
             (config.url_prefix + r"/api/pull_requests", GithubWebhook.PullRequestHandler, dict(prs=prs)),
             (config.url_prefix + r"/github", GithubWebhook.GithubWebhookHandler, dict(handler=github_handlers)),
             (config.url_prefix + r"/status", GithubWebhook.StatusWebSocket),
             (config.url_prefix + r"/control", GithubWebhook.ControlHandler),
-                ])
-        self.server = tornado.httpserver.HTTPServer(self.application)
-        self.server.listen(self.port)
+        ]
+
         self.websocket_lock = Lock()
         self.status_websockets = set()
+        settings = {'debug': True}
+        super(GithubWebhook, self).__init__(handlers, **settings)
 
     def run(self):
         log.info("tornado IOLoop started.")

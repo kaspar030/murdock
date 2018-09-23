@@ -497,8 +497,10 @@ def main():
 
 #    threading.Thread(target=startup_load_pull_requests, daemon=True).start()
 
-    g = GithubWebhook(config.port, PullRequest, github_handlers)
-    g.run()
+    webhook = GithubWebhook(PullRequest, github_handlers)
+    webhook.listen(config.port)
+    log.info("Start tornado IOLoop")
+    tornado.ioloop.IOLoop.instance().start()
 
     # tornado loop ended
 
