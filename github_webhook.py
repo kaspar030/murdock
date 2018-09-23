@@ -13,23 +13,23 @@ from threading import Lock
 config.set_default("url_prefix", r"")
 
 class GithubWebhook(object):
-    def __init__(s, port, prs, github_handlers):
+    def __init__(self, port, prs, github_handlers):
 
-        s.secret = "__secret"
-        s.port = port
-        s.application = tornado.web.Application([
+        self.secret = "__secret"
+        self.port = port
+        self.application = tornado.web.Application([
 #            (r"/", GithubWebhook.MainHandler),
             (config.url_prefix + r"/api/pull_requests", GithubWebhook.PullRequestHandler, dict(prs=prs)),
             (config.url_prefix + r"/github", GithubWebhook.GithubWebhookHandler, dict(handler=github_handlers)),
             (config.url_prefix + r"/status", GithubWebhook.StatusWebSocket),
             (config.url_prefix + r"/control", GithubWebhook.ControlHandler),
                 ])
-        s.server = tornado.httpserver.HTTPServer(s.application)
-        s.server.listen(s.port)
-        s.websocket_lock = Lock()
-        s.status_websockets = set()
+        self.server = tornado.httpserver.HTTPServer(self.application)
+        self.server.listen(self.port)
+        self.websocket_lock = Lock()
+        self.status_websockets = set()
 
-    def run(s):
+    def run(self):
         log.info("tornado IOLoop started.")
         tornado.ioloop.IOLoop.instance().start()
 
@@ -38,8 +38,8 @@ class GithubWebhook(object):
             self.write("...")
 
     class PullRequestHandler(tornado.web.RequestHandler):
-        def initialize(s, prs):
-            s.prs = prs
+        def initialize(self, prs):
+            self.prs = prs
 
         def get(self):
             def gen_pull_entry(pr, job, time, extra = None):
@@ -114,16 +114,16 @@ class GithubWebhook(object):
             self.write(json.dumps(response, sort_keys=False, indent=4))
 
     class GithubWebhookHandler(tornado.web.RequestHandler):
-        def initialize(s, handler):
-            s.handler = handler
+        def initialize(self, handler):
+            self.handler = handler
 
-        def post(s):
-            s.write("ok")
-            hook_type = s.request.headers.get('X-Github-Event')
+        def post(self):
+            self.write("ok")
+            hook_type = self.request.headers.get('X-Github-Event')
 
-            handler = s.handler.get(hook_type)
+            handler = self.handler.get(hook_type)
             if handler:
-                handler(s.request)
+                handler(self.request)
             else:
                 log.warning("unhandled github event: %s", hook_type)
 
@@ -136,12 +136,14 @@ class GithubWebhook(object):
         def check_origin(self, origin):
             return True
 
+        @staticmethod
         def write_message_all(message, binary=False):
             s = GithubWebhook.StatusWebSocket
             with s.lock:
                 for websocket in s.websockets:
                     websocket.write_message(message, binary)
 
+        @staticmethod
         def keep_alive():
             s = GithubWebhook.StatusWebSocket
             with s.lock:
