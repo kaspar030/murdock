@@ -53,6 +53,33 @@ class GithubWebhook(object):
                         })
                 return res
 
+            def get_paths(pr, job):
+                job_path_rel = os.path.join(pr.base_full_name, str(pr.nr),
+                                            job.arg)
+                job_path_local = os.path.join(config.data_dir, job_path_rel)
+                job_path_url = os.path.join(config.http_root, job_path_rel)
+
+                return job_path_local, job_path_url
+
+            def update_status(extras, job_path_local):
+                status_jsonfile = os.path.join(job_path_local,
+                                               "prstatus.json")
+                if os.path.isfile(status_jsonfile):
+                    with open(status_jsonfile) as f:
+                        # Content is up for interpretation between backend
+                        # and frontend scripting
+                        extras["status"] = json.load(f)
+                if "status" not in extras:
+                    status_html_snipfile = os.path.join(
+                            job_path_local, "prstatus.html.snip"
+                        )
+
+                    status_html = ""
+                    if os.path.isfile(status_html_snipfile):
+                        with open(status_html_snipfile, "r") as f:
+                            status_html = f.read()
+                    extras["status_html"] = status_html
+
             self.set_header("Content-Type", 'application/json; charset="utf-8"')
             self.set_header("Access-Control-Allow-Credentials", "false")
             self.set_header("Access-Control-Allow-Origin", "*")
@@ -63,8 +90,11 @@ class GithubWebhook(object):
             if building:
                 _building = []
                 for pr, job in building:
+                    job_path_local, _ = self.get_paths(pr, job)
+                    extras = {}
+                    update_status(extras, job_path_local)
                     _building.append(
-                            gen_pull_entry(pr, job, job.time_started))
+                            gen_pull_entry(pr, job, job.time_started, extras))
                 response['building'] = _building
 
             if queued:
@@ -78,37 +108,17 @@ class GithubWebhook(object):
             if finished:
                 _finished = []
                 for pr, job in finished:
-                    job_path_rel = os.path.join(pr.base_full_name, str(pr.nr), job.arg)
-                    job_path_local = os.path.join(config.data_dir, job_path_rel)
-                    job_path_url = os.path.join(config.http_root, job_path_rel)
+                    job_path_local, job_path_url = self.get_paths(pr, job)
 
                     extras = {
                         "output_url": os.path.join(job_path_url, "output.html"),
                         "result": job.result.name,
                         "runtime": (job.time_finished - job.time_started),
                       }
-                    status_jsonfile = os.path.join(job_path_local,
-                                                   "prstatus.json")
-                    if os.path.isfile(status_jsonfile):
-                        with open(status_jsonfile) as f:
-                            # Content is up for interpretation between backend
-                            # and frontend scripting
-                            extras["status"] = json.load(f)
-                    if "status" not in extras:
-                        status_html_snipfile = os.path.join(
-                                job_path_local, "prstatus.html.snip"
-                            )
-
-                        status_html = ""
-                        if os.path.isfile(status_html_snipfile):
-                            with open(status_html_snipfile, "r") as f:
-                                status_html = f.read()
-                        extras["status_html"] = status_html
-
+                    update_status(extras, job_path_local)
                     _finished.append(
                             gen_pull_entry(pr, job, job.time_finished, extras)
                         )
-
                 response['finished'] = _finished
 
             self.write(json.dumps(response, sort_keys=False, indent=4))
