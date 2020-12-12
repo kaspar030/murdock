@@ -5,6 +5,7 @@ Developed for RIOT (riot-os.org).
 # Requirements
 
 - python3
+- Tornado python module
 - agithub python module (tested with v2.1 from pip)
 - pytoml python module
 
