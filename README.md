@@ -1,3 +1,7 @@
+# ⚠️  archived ⚠️
+
+This has been superseded by [murdock-ng](https://github.com/murdock-ng/murdock).
+
 # murdock
 A simple CI (continuous integration) server written in Python.
 Developed for RIOT (riot-os.org).
